@@ -2,7 +2,7 @@ import os
 import requests
 import json
 import csv
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # Files
 USER_FILE = "twitter_usernames.txt"
@@ -17,8 +17,10 @@ HEADERS = {"Authorization": f"Bearer {BEARER_TOKEN}"}
 os.makedirs("data", exist_ok=True)
 os.makedirs("state", exist_ok=True)
 
+# Define IST timezone
+IST = timezone(timedelta(hours=5, minutes=30))
+
 def get_user_data(username):
-    # Adding tweet.fields=public_metrics to fetch likes
     url = f"https://api.twitter.com/2/users/by/username/{username}?user.fields=public_metrics,name,username"
     response = requests.get(url, headers=HEADERS)
     if response.status_code != 200:
@@ -36,7 +38,7 @@ def log_history(entry):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "timestamp", "username", "name",
+                "timestamp (IST)", "username", "name",
                 "followers", "following", "tweets", "likes"
             ])
         writer.writerow(entry)
@@ -62,13 +64,13 @@ def main():
 
         metrics = data.get("public_metrics", {})
         entry = [
-            datetime.utcnow().isoformat(),
+            datetime.now(IST).isoformat(),  # <-- log IST time
             data.get("username", ""),
             data.get("name", ""),
             metrics.get("followers_count", 0),
             metrics.get("following_count", 0),
             metrics.get("tweet_count", 0),
-            metrics.get("like_count", 0)  # <-- new field
+            metrics.get("like_count", 0)
         ]
 
         # Always log every run
