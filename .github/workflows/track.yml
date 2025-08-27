@@ -2,24 +2,41 @@ name: X Profile Tracker
 
 on:
   schedule:
-    - cron: '0 * * * *'  # every 1 hour UTC
+    - cron: '0 * * * *'   # every hour (UTC)
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
 
+    steps:
+      # 1️⃣ Checkout repo with credentials for pushing
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true  # THIS IS KEY
+
+      # 2️⃣ Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # 4️⃣ Run tracker script
       - name: Run tracker
+        run: python tracker.py
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-        run: python tracker.py
+
+      # 5️⃣ Commit & push changes
+      - name: Commit changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/twitter_history.csv state/twitter_last_seen.json
+          git commit -m "Update X profile history" || echo "No changes"
+          git push
