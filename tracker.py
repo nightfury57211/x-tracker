@@ -1,64 +1,68 @@
 import os
+import requests
 import json
 import csv
-import requests
 from datetime import datetime
 
 USER_FILE = "twitter_usernames.txt"
-DATA_FOLDER = "data"
-STATE_FOLDER = "state"
-HISTORY_FILE = os.path.join(DATA_FOLDER, "twitter_history.csv")
-STATE_FILE = os.path.join(STATE_FOLDER, "twitter_last_seen.json")
+HISTORY_FILE = "data/twitter_history.csv"
+STATE_FILE = "state/twitter_last_seen.json"
 
-os.makedirs(DATA_FOLDER, exist_ok=True)
-os.makedirs(STATE_FOLDER, exist_ok=True)
-
-with open(USER_FILE, "r") as f:
-    usernames = [line.strip() for line in f if line.strip()]
-
-if os.path.exists(STATE_FILE):
-    with open(STATE_FILE, "r", encoding="utf-8") as f:
-        last_seen = json.load(f)
-else:
-    last_seen = {}
-
+# Load bearer token from GitHub secret
 BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN")
-HEADERS = {"Authorization": f"Bearer {BEARER_TOKEN}"}
 
-def fetch_user_info(username):
-    url = f"https://api.twitter.com/2/users/by/username/{username}?user.fields=public_metrics"
-    resp = requests.get(url, headers=HEADERS)
-    data = resp.json()
-    metrics = data.get("data", {}).get("public_metrics", {})
-    return {
-        "username": username,
-        "followers": metrics.get("followers_count"),
-        "following": metrics.get("following_count"),
-        "posts": metrics.get("tweet_count")
-    }
+HEADERS = {
+    "Authorization": f"Bearer {BEARER_TOKEN}"
+}
 
-csv_headers = ["timestamp", "username", "followers", "following", "posts"]
-if not os.path.exists(HISTORY_FILE):
-    with open(HISTORY_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=csv_headers)
-        writer.writeheader()
+def get_user_data(username):
+    url = f"https://api.twitter.com/2/users/by/username/{username}?user.fields=public_metrics,name,username"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code != 200:
+        print(f"Error fetching {username}: {response.text}")
+        return None
+    return response.json()["data"]
 
-updates = []
-for username in usernames:
-    info = fetch_user_info(username)
-    previous = last_seen.get(username)
-    if previous != info:
-        updates.append(info)
-        last_seen[username] = info
+def save_last_seen(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
 
-if updates:
+def log_history(entry):
+    file_exists = os.path.exists(HISTORY_FILE)
     with open(HISTORY_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=csv_headers)
-        timestamp = datetime.utcnow().isoformat()
-        for item in updates:
-            row = {"timestamp": timestamp}
-            row.update(item)
-            writer.writerow(row)
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["timestamp", "username", "name", "followers", "following", "tweets"])
+        writer.writerow(entry)
 
-with open(STATE_FILE, "w", encoding="utf-8") as f:
-    json.dump(last_seen, f, indent=2, ensure_ascii=False)
+def main():
+    with open(USER_FILE, "r") as f:
+        usernames = [line.strip() for line in f if line.strip()]
+
+    new_state = {}
+
+    for username in usernames:
+        data = get_user_data(username)
+        if not data:
+            continue
+
+        metrics = data["public_metrics"]
+        entry = [
+            datetime.utcnow().isoformat(),
+            data["username"],
+            data["name"],
+            metrics["followers_count"],
+            metrics["following_count"],
+            metrics["tweet_count"]
+        ]
+
+        # Always log the data
+        log_history(entry)
+
+        # Save the latest snapshot for reference
+        new_state[username] = entry
+
+    save_last_seen(new_state)
+
+if __name__ == "__main__":
+    main()
